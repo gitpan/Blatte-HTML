@@ -9,6 +9,12 @@ use BlatteTestHarness;
 b}'],
              ['a
 
+b',
+              '{\html_p_no a
+
+b}'],
+             ['a
+
 <p>b</p>',
               '{a
 

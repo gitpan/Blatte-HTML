@@ -20,6 +20,8 @@ package Blatte::HTML;
 
 BEGIN {
   @Blatte::HTML::builtins = qw($html_bool_yes $html_bool_no
+                               $html_p_yes $html_p_no
+                               $html_ent_yes $html_ent_no
                                $a $abbr $acronym $address $applet $area $b
                                $base $basefont $bdo $big $blockquote $body $br
                                $button $caption $center $cite $code $col
@@ -44,15 +46,23 @@ use Exporter;
 @EXPORT = @Blatte::HTML::builtins;
 @EXPORT_OK = qw(make_start_tag render);
 
-$VERSION = '0.8.2';
+$VERSION = '0.9';
 
 use Blatte;
 use HTML::Entities;
 use HTML::Tagset;
 use Symbol;
 
-$html_bool_yes = gensym();
-$html_bool_no  = gensym();
+my $_html_bool_yes = gensym();
+my $_html_bool_no  = gensym();
+
+$html_bool_yes = sub { $_html_bool_yes };
+$html_bool_no  = sub { $_html_bool_no };
+
+$html_p_yes   = sub { new Blatte::HTML::Element('_p', 1, @_[1 .. $#_]) };
+$html_p_no    = sub { new Blatte::HTML::Element('_p', 0, @_[1 .. $#_]) };
+$html_ent_yes = sub { new Blatte::HTML::Element('_ent', 1, @_[1 .. $#_]) };
+$html_ent_no  = sub { new Blatte::HTML::Element('_ent', 0, @_[1 .. $#_]) };
 
 $a          = sub { new Blatte::HTML::Element('a',          @_) };
 $abbr       = sub { new Blatte::HTML::Element('abbr',       @_) };
@@ -155,8 +165,8 @@ sub make_start_tag {
   my $attrs = $obj->attrs();
   foreach my $attr (keys %$attrs) {
     my $val = $attrs->{$attr};
-    if ($val ne $html_bool_no) {
-      if ($val eq $html_bool_yes) {
+    if ($val ne $_html_bool_no) {
+      if ($val eq $_html_bool_yes) {
         $result .= " $attr";
       } else {
         $result .= sprintf(' %s="%s"',
@@ -170,14 +180,31 @@ sub make_start_tag {
 
 sub render {
   my($val, $render_cb) = @_;
+  my $do_p = 1;
+  my $do_entities = 1;
   my @stack;
   my $traverse_cb;
   $traverse_cb = sub {
     my($ws, $obj) = @_;
 
+    my $old_do_p        = $do_p;
+    my $old_do_entities = $do_entities;
+
     my $obj_is_html_elt = &UNIVERSAL::isa($obj, 'Blatte::HTML::Element');
-    my $obj_is_p = ($obj_is_html_elt && ($obj->name() eq 'p'));
-    my $newpar = ($obj_is_p || (defined($ws) && ($ws =~ /\n.*\n/)));
+
+    my $obj_is__p   = ($obj_is_html_elt && ($obj->name() eq '_p'));
+    my $obj_is__ent = ($obj_is_html_elt && ($obj->name() eq '_ent'));
+    my $obj_is_control = ($obj_is__p || $obj_is__ent);
+
+    if ($obj_is__p) {
+      $do_p = $obj->attrs();
+    } elsif ($obj_is__ent) {
+      $do_entities = $obj->attrs();
+    }
+
+    my $obj_is_p        = ($obj_is_html_elt && ($obj->name() eq 'p'));
+    my $newpar          = ($do_p &&
+                           ($obj_is_p || (defined($ws) && ($ws =~ /\n.*\n/))));
 
     my $close_needed;
 
@@ -220,32 +247,46 @@ sub render {
     }
 
     if ($obj_is_html_elt) {
-      my $tag = &make_start_tag($obj);
-      &$render_cb($tag);
+      my $tag;
+      my $name;
 
-      my $name = $obj->name();
-      unless ($HTML::Tagset::emptyElement{$name}) {
-        my $pair = [$name, $tag];
+      unless ($obj_is_control) {
+        $tag = &make_start_tag($obj);
+        &$render_cb($tag);
+        $name = $obj->name();
+      }
 
-        push(@stack, $pair);
+      if ($obj_is_control || !$HTML::Tagset::emptyElement{$name}) {
+        my $pair;
+
+        unless ($obj_is_control) {
+          $pair = [$name, $tag];
+          push(@stack, $pair);
+        }
+
         &Blatte::traverse([$obj->content()], $traverse_cb);
 
-        for (my $i = $#stack; $i >= 0; --$i) {
-          my $elt = $stack[$i];
-          if ($elt eq $pair) {
-            for (my $j = $#stack; $j >= $i; --$j) {
-              my $elt2 = $stack[$j];
-              my $name2 = $elt2->[0];
-              &$render_cb("</$name2>");
+        unless ($obj_is_control) {
+          for (my $i = $#stack; $i >= 0; --$i) {
+            my $elt = $stack[$i];
+            if ($elt eq $pair) {
+              for (my $j = $#stack; $j >= $i; --$j) {
+                my $elt2 = $stack[$j];
+                my $name2 = $elt2->[0];
+                &$render_cb("</$name2>");
+              }
+              splice(@stack, $i);
+              last;
             }
-            splice(@stack, $i);
-            last;
           }
         }
       }
     } else {
-      &$render_cb(&encode_entities($obj));
+      &$render_cb($do_entities ? &encode_entities($obj) : $obj);
     }
+
+    $do_p = $old_do_p;
+    $do_entities = $old_do_entities;
   };
   &Blatte::traverse($val, $traverse_cb);
 }
@@ -341,13 +382,26 @@ becomes this:
 
   Five &amp; dime
 
+It's possible to suppress automatic <p>-tag generation and entity-encoding by
+writing:
+
+  {\html_p_no ...content...}
+
+and
+
+  {\html_ent_no ...content...}
+
+Inside an {\html_p_no ...} it's possible to reenable <p>-tag generation with
+{\html_p_yes ...}, and inside {\html_ent_no ...} it's possible to reenable
+entity encoding with {\html_ent_yes ...}.
+
 =head1 FUNCTIONS
 
 =over 4
 
 =item make_start_tag(ELEMENT)
 
-Given a Blatte::HTML::Element object, renders a string representing
+Given a Blatte::HTML::Element object, returns a string representing
 that element's HTML start tag.
 
 (Blatte::HTML::Element is the type of object returned by the Blatte
@@ -387,10 +441,9 @@ Boolean attributes, such as the C<ismap> in
 
   <img src="..." ismap>
 
-are specified using the special Blatte values \html_bool_yes and
-\html_bool_no.  For instance, this:
+are specified using {\html_bool_yes} and {\html_bool_no}.  For instance, this:
 
-  {\img \src=... \ismap=\html_bool_yes}
+  {\img \src=... \ismap={\html_bool_yes}}
 
 yields this:
 
@@ -398,7 +451,7 @@ yields this:
 
 while this:
 
-  {\img \src=... \ismap=\html_bool_no}
+  {\img \src=... \ismap={\html_bool_no}}
 
 yields this:
 
