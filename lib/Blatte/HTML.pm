@@ -44,7 +44,7 @@ use Exporter;
 @EXPORT = @Blatte::HTML::builtins;
 @EXPORT_OK = qw(make_start_tag render);
 
-$VERSION = '0.8';
+$VERSION = '0.8.1';
 
 use Blatte;
 use HTML::Entities;
@@ -277,7 +277,7 @@ Blatte::HTML - tools for generating HTML with Blatte
 This module defines Blatte functions corresponding to HTML tags,
 making it possible to write Blatte that looks like this:
 
-  Here is a {\a href=http://www.blatte.org/ link}
+  Here is a {\a \href=http://www.blatte.org/ link}
 
 and can be translated to this:
 
