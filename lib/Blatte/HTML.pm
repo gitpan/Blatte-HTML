@@ -44,7 +44,7 @@ use Exporter;
 @EXPORT = @Blatte::HTML::builtins;
 @EXPORT_OK = qw(make_start_tag render);
 
-$VERSION = '0.8.1';
+$VERSION = '0.8.2';
 
 use Blatte;
 use HTML::Entities;
